@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebDesk</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family:"Segoe UI",Arial,sans-serif; }
+  body { height:100vh; overflow:hidden;
+    background:linear-gradient(135deg,#0f2027,#203a43,#2c5364); }
+  #desktop { position:relative; width:100%; height:calc(100vh - 48px); }
+
+  /* Icons */
+  .icon { position:absolute; width:90px; text-align:center; color:#fff; cursor:pointer;
+    user-select:none; padding:8px; border-radius:6px; }
+  .icon:hover { background:rgba(255,255,255,.15); }
+  .icon .glyph { font-size:40px; display:block; margin-bottom:4px; }
+  .icon span { font-size:12px; text-shadow:0 1px 3px #000; }
+
+  /* Windows */
+  .win { position:absolute; width:640px; min-height:300px; background:#1f1f2e;
+    border:1px solid #444; border-radius:8px; box-shadow:0 10px 40px rgba(0,0,0,.6);
+    display:flex; flex-direction:column; overflow:hidden; }
+  .titlebar { background:#2d2d44; color:#fff; padding:8px 12px; cursor:move;
+    display:flex; justify-content:space-between; align-items:center; font-size:13px; }
+  .titlebar .btns button { background:none; border:none; color:#fff; font-size:14px;
+    cursor:pointer; margin-left:8px; }
+  .titlebar .btns .close:hover { color:#ff5f57; }
+  .winbody { flex:1; padding:14px; color:#ddd; overflow:auto; }
+
+  /* Taskbar */
+  #taskbar { position:fixed; bottom:0; left:0; right:0; height:48px;
+    background:rgba(20,20,30,.95); display:flex; align-items:center; padding:0 10px; gap:6px; }
+  #taskbar button { background:rgba(255,255,255,.08); border:none; color:#fff;
+    padding:8px 14px; border-radius:6px; cursor:pointer; font-size:13px; }
+  #taskbar button:hover { background:rgba(255,255,255,.18); }
+  #clock { margin-left:auto; color:#fff; font-size:13px; padding-right:8px; }
+
+  /* Search app */
+  #searchInput { width:100%; padding:10px 12px; font-size:15px; border-radius:6px;
+    border:1px solid #555; background:#111; color:#fff; }
+  .result { border-bottom:1px solid #333; padding:10px 4px; }
+  .result a { color:#6cb2ff; text-decoration:none; font-size:15px; }
+  .result a:hover { text-decoration:underline; }
+  .result p { font-size:13px; color:#aaa; margin-top:4px; }
+  .meta { font-size:12px; color:#7a7; }
+</style>
+</head>
+<body>
+<div id="desktop">
+  <div class="icon" style="left:20px;top:20px" onclick="openSearch()">
+    <span class="glyph">🔍</span><span>DDG Search</span></div>
+  <div class="icon" style="left:20px;top:130px" onclick="openNotepad()">
+    <span class="glyph">📝</span><span>Notepad</span></div>
+  <div class="icon" style="left:20px;top:240px" onclick="openCalc()">
+    <span class="glyph">🧮</span><span>Calculator</span></div>
+</div>
+
+<div id="taskbar">
+  <button onclick="openSearch()">🔍 Search</button>
+  <button onclick="openNotepad()">📝 Notepad</button>
+  <button onclick="openCalc()">🧮 Calc</button>
+  <div id="clock"></div>
+</div>
+
+<script>
+let z = 10;
+function makeWindow(title, id) {
+  const w = document.createElement('div');
+  w.className = 'win'; w.id = id;
+  w.style.left = (80 + Math.random()*150) + 'px';
+  w.style.top  = (60 + Math.random()*100) + 'px';
+  w.style.zIndex = ++z;
+  w.innerHTML = `<div class="titlebar"><span>${title}</span>
+    <span class="btns"><button class="close" onclick="this.closest('.win').remove()">✕</button></span></div>
+    <div class="winbody"></div>`;
+  document.getElementById('desktop').appendChild(w);
+  const bar = w.querySelector('.titlebar');
+  let drag = null;
+  bar.addEventListener('mousedown', e => {
+    drag = {x:e.clientX - w.offsetLeft, y:e.clientY - w.offsetTop};
+    w.style.zIndex = ++z;
+  });
+  document.addEventListener('mousemove', e => {
+    if (!drag) return;
+    w.style.left = (e.clientX - drag.x) + 'px';
+    w.style.top  = Math.max(0, e.clientY - drag.y) + 'px';
+  });
+  document.addEventListener('mouseup', () => drag = null);
+  return w;
+}
+
+/* ---- Search app (DuckDuckGo Instant Answer API, JSONP) ---- */
+function openSearch() {
+  let w = document.getElementById('win-search');
+  if (w) { w.style.zIndex = ++z; return; }
+  w = makeWindow('DDG Search', 'win-search');
+  w.querySelector('.winbody').innerHTML = `
+    <input id="searchInput" placeholder="Search DuckDuckGo…" autofocus>
+    <button style="margin:8px 0;padding:8px 14px;border:none;border-radius:6px;
+      background:#de5833;color:#fff;cursor:pointer" onclick="doSearch()">Search</button>
+    <button style="margin:8px 0;padding:8px 14px;border:none;border-radius:6px;
+      background:#444;color:#fff;cursor:pointer"
+      onclick="window.open('https://duckduckgo.com/?q='+encodeURIComponent(document.getElementById('searchInput').value))">
+      Full results on duckduckgo.com ↗</button>
+    <div id="results"></div>`;
+  w.querySelector('#searchInput').addEventListener('keydown',
+    e => { if (e.key === 'Enter') doSearch(); });
+}
+
+function doSearch() {
+  const q = document.getElementById('searchInput').value.trim();
+  const out = document.getElementById('results');
+  if (!q) return;
+  out.innerHTML = '<p class="meta">Searching…</p>';
+  // Remove previous JSONP script
+  const old = document.getElementById('jsonp');
+  if (old) old.remove();
+  window.ddgCallback = data => {
+    out.innerHTML = '';
+    let n = 0;
+    const add = (heading, text, url) => {
+      const d = document.createElement('div');
+      d.className = 'result';
+      d.innerHTML = `<a href="${url || '#'}" target="_blank" rel="noopener">${heading}</a>
+        ${text ? `<p>${text}</p>` : ''}`;
+      out.appendChild(d); n++;
+    };
+    if (data.Answer) add('Answer', data.Answer.replace(/<[^>]+>/g,''), '');
+    if (data.AbstractText) {
+      add(data.Heading + (data.AbstractURL ? '' : ''), data.AbstractText, data.AbstractURL);
+      if (data.AbstractSource) out.lastChild.innerHTML +=
+        `<p class="meta">Source: ${data.AbstractSource}</p>`;
+    }
+    (data.RelatedTopics || []).forEach(t => {
+      if (t.Text) add(t.Text.split(' - ')[0], t.Text, t.FirstURL);
+    });
+    if (!n) out.innerHTML = '<p class="meta">No instant-answer results. Try "Full results on duckduckgo.com".</p>';
+  };
+  const s = document.createElement('script');
+  s.id = 'jsonp';
+  s.src = 'https://api.duckduckgo.com/?q=' + encodeURIComponent(q) +
+          '&format=json&pretty=0&no_html=1&skip_disambig=1&callback=ddgCallback';
+  document.body.appendChild(s);
+}
+
+/* ---- Notepad ---- */
+function openNotepad() {
+  let w = document.getElementById('win-note');
+  if (w) { w.style.zIndex = ++z; return; }
+  w = makeWindow('Notepad', 'win-note');
+  w.querySelector('.winbody').innerHTML =
+    `<textarea style="width:100%;height:100%;min-height:220px;background:#111;color:#ddd;
+      border:1px solid #555;border-radius:6px;padding:8px;font-family:monospace"></textarea>`;
+}
+
+/* ---- Calculator ---- */
+function openCalc() {
+  let w = document.getElementById('win-calc');
+  if (w) { w.style.zIndex = ++z; return; }
+  w = makeWindow('Calculator', 'win-calc');
+  const keys = ['7','8','9','/','4','5','6','*','1','2','3','-','0','.','=','+'];
+  w.querySelector('.winbody').innerHTML =
+    `<input id="calcDisp" readonly style="width:100%;padding:10px;font-size:20px;
+      text-align:right;background:#111;color:#0f0;border:1px solid #555;border-radius:6px"><br><br>` +
+    keys.map(k => `<button data-k="${k}" style="width:23%;margin:1%;padding:12px;font-size:16px;
+      border:none;border-radius:6px;background:#333;color:#fff;cursor:pointer">${k}</button>`).join('') +
+    `<button data-k="C" style="width:47%;margin:1%;padding:12px;font-size:16px;border:none;
+      border-radius:6px;background:#a33;color:#fff;cursor:pointer">C</button>`;
+  let expr = '';
+  w.querySelectorAll('button').forEach(b => b.onclick = () => {
+    const k = b.dataset.k;
+    if (k === 'C') expr = '';
+    else if (k === '=') { try { expr = String(Function('return (' + expr + ')')()); }
+      catch { expr = 'Error'; } }
+    else expr += k;
+    w.querySelector('#calcDisp').value = expr;
+  });
+}
+
+/* ---- Clock ---- */
+setInterval(() => {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+}, 1000);
+</script>
+</body>
+</html>
